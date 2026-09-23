@@ -66,7 +66,7 @@ disable_cameras() {
   # not stop the rest from going dark.
   mapfile -t interfaces < <(video_interfaces)
   for interface in "${interfaces[@]}"; do
-    echo 0 >"$interface/authorized" 2>/dev/null || true
+    echo 0 2>/dev/null >"$interface/authorized" || true
   done
 }
 
@@ -80,11 +80,11 @@ enable_cameras() {
   # The kernel does not probe an interface when it is authorized again, and
   # uvcvideo only binds once every interface of the camera is back.
   for interface in "${interfaces[@]}"; do
-    echo 1 >"$interface/authorized" 2>/dev/null || true
+    echo 1 2>/dev/null >"$interface/authorized" || true
   done
 
   for interface in "${interfaces[@]}"; do
-    echo "${interface##*/}" >"$USB_BUS/drivers_probe" 2>/dev/null || true
+    echo "${interface##*/}" 2>/dev/null >"$USB_BUS/drivers_probe" || true
   done
 }
 
