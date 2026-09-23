@@ -83,8 +83,15 @@ status() {
     '{present: $present, disabled: $disabled, inUse: ($apps | length > 0), apps: $apps}'
 }
 
+regex_escape() {
+  sed 's/[][\.^$*+?(){}|/]/\\&/g' <<<"$1"
+}
+
 watch() {
-  local current previous="" nodes
+  local current previous="" flag_dir watch_dir relevant waited
+
+  flag_dir=$(dirname "$DISABLED_FLAG")
+  relevant="^(/dev/video[0-9]+|$(regex_escape "$flag_dir")|$(regex_escape "$DISABLED_FLAG"))\$"
 
   while true; do
     current=$(status)
@@ -93,14 +100,28 @@ watch() {
       previous=$current
     fi
 
-    # The timeout only bounds how stale a missed event can leave the bar, and
-    # pdeathsig keeps the waiter from outliving this loop when the shell
-    # restarts.
-    nodes=(/dev/video*)
-    [[ -e ${nodes[0]} ]] || nodes=()
-    setpriv --pdeathsig TERM inotifywait -qq -t 30 \
-      -e open,close,create,delete \
-      /dev "$(dirname "$DISABLED_FLAG")" "${nodes[@]}" 2>/dev/null || true
+    # The flag's directory only appears on the first disable, so until then
+    # watch the closest one that exists for its creation.
+    watch_dir=$flag_dir
+    while [[ ! -d $watch_dir ]]; do
+      watch_dir=$(dirname "$watch_dir")
+    done
+
+    # A directory watch reports opens of every node in /dev, and /dev/null alone
+    # is opened several times a second, so only camera nodes and the flag wake
+    # the loop. The filtered events restart inotifywait's own -t, so timeout
+    # bounds how stale a missed event can leave the bar instead. pdeathsig keeps
+    # the waiter from outliving this loop when the shell restarts.
+    waited=0
+    setpriv --pdeathsig TERM timeout 30 inotifywait -qq \
+      -e open,close,create,delete --include "$relevant" \
+      /dev "$watch_dir" 2>/dev/null || waited=$?
+
+    # A watch that cannot be set up fails at once; back off instead of rescanning
+    # in a tight loop.
+    if (( waited == 1 )); then
+      sleep 5
+    fi
   done
 }
 
