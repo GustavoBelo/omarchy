@@ -9,7 +9,6 @@ BarWidget {
 
   property bool present: false
   property bool disabled: false
-  property bool opened: false
   property bool inUse: false
   property var apps: []
 
@@ -24,25 +23,9 @@ BarWidget {
       var state = JSON.parse(line)
       present = state.present === true
       disabled = state.disabled === true
-      opened = state.inUse === true
+      inUse = state.inUse === true
       apps = Array.isArray(state.apps) ? state.apps : []
     } catch (e) {}
-  }
-
-  // Browsers open every camera for a moment when a page lists devices.
-  onOpenedChanged: {
-    if (opened) {
-      inUseTimer.restart()
-    } else {
-      inUseTimer.stop()
-      inUse = false
-    }
-  }
-
-  Timer {
-    id: inUseTimer
-    interval: 1000
-    onTriggered: root.inUse = root.opened
   }
 
   Process {
