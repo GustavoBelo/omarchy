@@ -88,18 +88,12 @@ regex_escape() {
 }
 
 watch() {
-  local current previous="" flag_dir watch_dir relevant waited
+  local current previous="" flag_dir watch_dir waiter_dir="" relevant waiter_fd="" waiter_pid="" waited
 
   flag_dir=$(dirname "$DISABLED_FLAG")
   relevant="^(/dev/video[0-9]+|$(regex_escape "$flag_dir")|$(regex_escape "$DISABLED_FLAG"))\$"
 
   while true; do
-    current=$(status)
-    if [[ $current != "$previous" ]]; then
-      echo "$current"
-      previous=$current
-    fi
-
     # The flag's directory only appears on the first disable, so until then
     # watch the closest one that exists for its creation.
     watch_dir=$flag_dir
@@ -107,19 +101,40 @@ watch() {
       watch_dir=$(dirname "$watch_dir")
     done
 
-    # A directory watch reports opens of every node in /dev, and /dev/null alone
-    # is opened several times a second, so only camera nodes and the flag wake
-    # the loop. The filtered events restart inotifywait's own -t, so timeout
-    # bounds how stale a missed event can leave the bar instead. pdeathsig keeps
-    # the waiter from outliving this loop when the shell restarts.
-    waited=0
-    setpriv --pdeathsig TERM timeout 30 inotifywait -qq \
-      -e open,close,create,delete --include "$relevant" \
-      /dev "$watch_dir" 2>/dev/null || waited=$?
+    # Started before the scan, so an event landing mid-scan waits in the pipe
+    # instead of leaving the bar stale.
+    if [[ -z $waiter_fd || $watch_dir != "$waiter_dir" ]]; then
+      if [[ -n $waiter_fd ]]; then
+        kill "$waiter_pid" 2>/dev/null || true
+        exec {waiter_fd}<&-
+      fi
+      # /dev/null alone is opened several times a second, and a watch on /dev
+      # reports it. pdeathsig keeps the waiter from outliving the shell.
+      exec {waiter_fd}< <(exec setpriv --pdeathsig TERM inotifywait -m -q \
+        -e open,close,create,delete --include "$relevant" \
+        /dev "$watch_dir" 2>/dev/null)
+      waiter_pid=$!
+      waiter_dir=$watch_dir
+    fi
 
-    # A watch that cannot be set up fails at once; back off instead of rescanning
-    # in a tight loop.
-    if (( waited == 1 )); then
+    current=$(status)
+    if [[ $current != "$previous" ]]; then
+      echo "$current"
+      previous=$current
+    fi
+
+    # The timeout only bounds how stale a missed event can leave the bar.
+    waited=0
+    read -r -t 30 -u "$waiter_fd" _ || waited=$?
+
+    if (( waited == 0 )); then
+      # Opening a camera comes as a burst of events; one scan covers them all.
+      while read -r -t 0.1 -u "$waiter_fd" _; do :; done
+    elif (( waited <= 128 )); then
+      # A watch that cannot be set up ends at once; back off and set it up
+      # again instead of rescanning in a tight loop.
+      exec {waiter_fd}<&-
+      waiter_fd=""
       sleep 5
     fi
   done

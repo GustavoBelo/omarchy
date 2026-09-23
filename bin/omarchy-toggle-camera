@@ -62,9 +62,11 @@ disable_cameras() {
   install -d -m 0755 "$(dirname "$DISABLED_FLAG")"
   : >"$DISABLED_FLAG"
 
+  # A camera unplugged halfway through takes its interfaces with it, and must
+  # not stop the rest from going dark.
   mapfile -t interfaces < <(video_interfaces)
   for interface in "${interfaces[@]}"; do
-    echo 0 >"$interface/authorized"
+    echo 0 >"$interface/authorized" 2>/dev/null || true
   done
 }
 
@@ -78,7 +80,7 @@ enable_cameras() {
   # The kernel does not probe an interface when it is authorized again, and
   # uvcvideo only binds once every interface of the camera is back.
   for interface in "${interfaces[@]}"; do
-    echo 1 >"$interface/authorized"
+    echo 1 >"$interface/authorized" 2>/dev/null || true
   done
 
   for interface in "${interfaces[@]}"; do
