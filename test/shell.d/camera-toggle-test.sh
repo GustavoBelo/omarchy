@@ -89,8 +89,8 @@ state=$(camera_status)
 
 pass "camera status reports presence and the disable flag as JSON"
 
-# The stub fails like a watch that cannot be set up, which is what a missing
-# flag directory used to cause, and logs what each attempt watched.
+# The stub fails like a watch on a flag directory that does not exist yet, and
+# logs what each attempt watched.
 watch_bin="$test_tmp/watch-bin"
 mkdir -p "$watch_bin"
 cat >"$watch_bin/inotifywait" <<'SH'
@@ -112,8 +112,8 @@ attempts=$(wc -l <"$test_tmp/watch.log")
   fail "camera watch backs off when its watch cannot be set up" "attempts in 2s: $attempts"
 
 watched=$(<"$test_tmp/watch.log")
-[[ $watched == *" /dev $test_tmp" ]] ||
-  fail "camera watch falls back to the closest existing directory above the flag" "got: $watched"
+[[ $watched == *" /dev $test_tmp/missing/state" ]] ||
+  fail "camera watch watches the flag's own directory" "got: $watched"
 
 # /dev/null alone is opened several times a second, and every wake rescans
 # every process's fds.
@@ -121,6 +121,13 @@ watched=$(<"$test_tmp/watch.log")
   fail "camera watch wakes only for camera nodes and the flag" "got: $watched"
 
 pass "camera watch ignores unrelated /dev activity and backs off on setup failure"
+
+# inotifywait drops directory events under --include, so the watcher cannot
+# notice the flag's directory being created and relies on it existing.
+grep -Fx 'd /var/lib/omarchy 0755 root root -' "$ROOT/etc/tmpfiles.d/omarchy-camera.conf" >/dev/null ||
+  fail "tmpfiles creates the directory the camera watcher watches"
+
+pass "tmpfiles creates the directory the camera watcher watches"
 
 # Root runs the privileged half directly, so the stubs below would not
 # stand between the script and this machine's real cameras.
