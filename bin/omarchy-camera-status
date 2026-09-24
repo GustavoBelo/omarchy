@@ -69,12 +69,24 @@ json_bool() {
   fi
 }
 
+# Browsers open every camera for well under 100ms when one appears, just to
+# list it, so only an app still holding a camera a moment later is using it.
+lasting_camera_users() {
+  local first
+
+  first=$(camera_users | sort -u)
+  if [[ -n $first ]]; then
+    sleep 0.3
+    comm -12 <(echo "$first") <(camera_users | sort -u)
+  fi
+}
+
 status() {
   local present disabled apps
 
   present=$(json_bool cameras_present)
   disabled=$(json_bool test -e "$DISABLED_FLAG")
-  apps=$(camera_users | sort -u | jq -Rsc 'split("\n") | map(select(length > 0))')
+  apps=$(lasting_camera_users | jq -Rsc 'split("\n") | map(select(length > 0))')
 
   jq -nc \
     --argjson present "$present" \
