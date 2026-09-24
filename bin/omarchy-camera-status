@@ -83,24 +83,26 @@ status() {
     '{present: $present, disabled: $disabled, inUse: ($apps | length > 0), apps: $apps}'
 }
 
-regex_escape() {
-  sed 's/[][\.^$*+?(){}|/]/\\&/g' <<<"$1"
-}
-
 watch() {
-  local current previous="" relevant waiter_fd="" waited
-
-  relevant="^(/dev/video[0-9]+|$(regex_escape "$DISABLED_FLAG"))\$"
+  local current previous="" waiter_fd="" waited
 
   while true; do
     # Started before the scan, so an event landing mid-scan waits in the pipe
     # instead of leaving the bar stale.
     if [[ -z $waiter_fd ]]; then
-      # /dev/null alone is opened several times a second, and a watch on /dev
-      # reports it. pdeathsig keeps the waiter from outliving the shell.
-      exec {waiter_fd}< <(exec setpriv --pdeathsig TERM inotifywait -m -q \
-        -e open,close,create,delete --include "$relevant" \
-        /dev "$(dirname "$DISABLED_FLAG")" 2>/dev/null)
+      # inotify sees apps opening cameras; udev sees cameras plugged, unplugged,
+      # disabled, or enabled, including one already disabled that never gets a
+      # /dev node. /dev/null alone is opened several times a second, so only
+      # camera nodes get through. pdeathsig keeps the waiters from outliving the
+      # shell, and wait -n ends both when either dies so the loop sets them up
+      # again.
+      exec {waiter_fd}< <(exec setpriv --pdeathsig TERM bash -c '
+        setpriv --pdeathsig TERM inotifywait -m -q -e open,close \
+          --include "^/dev/video[0-9]+\$" /dev 2>/dev/null &
+        setpriv --pdeathsig TERM udevadm monitor --udev \
+          --subsystem-match=usb/usb_interface 2>/dev/null &
+        wait -n
+      ')
     fi
 
     current=$(status)
@@ -114,12 +116,12 @@ watch() {
     read -r -t 30 -u "$waiter_fd" _ || waited=$?
 
     if (( waited == 0 )); then
-      # Opening a camera comes as a burst of events; one scan covers them all.
+      # Plugging or opening a camera comes as a burst of events; one scan covers
+      # them all.
       while read -r -t 0.1 -u "$waiter_fd" _; do :; done
     elif (( waited <= 128 )); then
-      # A watch that cannot be set up, such as on a flag directory that
-      # etc/tmpfiles.d/omarchy-camera.conf has not created yet, ends at once.
-      # Back off instead of rescanning in a tight loop.
+      # A waiter that cannot start ends at once; back off instead of rescanning
+      # in a tight loop.
       exec {waiter_fd}<&-
       waiter_fd=""
       sleep 5
