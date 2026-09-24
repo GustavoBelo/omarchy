@@ -44,6 +44,22 @@ BarWidget {
     onTriggered: statusProc.running = true
   }
 
+  // A toggle reaches the watcher only through driver bind and unbind events,
+  // and a camera with no driver bound sends none.
+  Process {
+    id: toggleProc
+    command: ["omarchy-toggle-camera"]
+    onExited: refreshProc.running = true
+  }
+
+  Process {
+    id: refreshProc
+    command: ["omarchy-camera-status"]
+    stdout: SplitParser {
+      onRead: function(line) { root.update(line) }
+    }
+  }
+
   BarIconButton {
     id: button
     anchors.fill: parent
@@ -51,6 +67,6 @@ BarWidget {
     text: root.disabled ? "󱜷" : "󰖠"
     active: root.inUse && !root.disabled
     tooltipText: root.disabled ? "Camera disabled" : (root.inUse ? "Camera in use by " + root.appNames : "Camera ready")
-    onPressed: root.bar.run("omarchy-toggle-camera")
+    onPressed: if (!toggleProc.running) toggleProc.running = true
   }
 }
