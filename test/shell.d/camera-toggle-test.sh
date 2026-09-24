@@ -90,12 +90,15 @@ state=$(camera_status)
 pass "camera status reports presence and the disable flag as JSON"
 
 # inotifywait fails like a watch that cannot be set up; udevadm stays up like
-# the real monitor. Both log what they were asked to watch.
+# the real monitor. Both log what they were asked to watch. The failure waits
+# for the monitor to come up first, or wait -n could end the inner shell before
+# the monitor logs anything or arms its pdeathsig.
 watch_bin="$test_tmp/watch-bin"
 mkdir -p "$watch_bin"
 cat >"$watch_bin/inotifywait" <<'SH'
 #!/bin/bash
 printf 'inotifywait %s\n' "$*" >>"$WATCH_LOG"
+for _ in {1..200}; do [[ -s $WATCH_PIDS ]] && break; sleep 0.01; done
 exit 1
 SH
 cat >"$watch_bin/udevadm" <<'SH'
@@ -135,8 +138,8 @@ attempts=$(grep -c '^inotifywait ' "$test_tmp/watch.log" || true)
 grep -Fx 'inotifywait -m -q -e open,close --include ^/dev/video[0-9]+$ /dev' "$test_tmp/watch.log" >/dev/null ||
   fail "camera watch wakes only for camera nodes opening and closing" "got: $(<"$test_tmp/watch.log")"
 
-# A camera that is already disabled never gets a /dev node, so plugging or
-# unplugging it only shows up on the USB bus.
+# A disabled camera being unplugged has no /dev node left to go away, so it
+# only shows up on the USB bus.
 grep -Fx 'udevadm monitor --udev --subsystem-match=usb/usb_interface' "$test_tmp/watch.log" >/dev/null ||
   fail "camera watch follows cameras on the USB bus" "got: $(<"$test_tmp/watch.log")"
 

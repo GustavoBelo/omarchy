@@ -91,9 +91,9 @@ watch() {
     # instead of leaving the bar stale.
     if [[ -z $waiter_fd ]]; then
       # inotify sees apps opening cameras; udev sees cameras plugged, unplugged,
-      # disabled, or enabled, including one already disabled that never gets a
-      # /dev node. /dev/null alone is opened several times a second, so only
-      # camera nodes get through. pdeathsig keeps the waiters from outliving the
+      # disabled, or enabled, including a disabled one being unplugged, which
+      # has no /dev node left to go away. /dev/null alone is opened several
+      # times a second, so only camera nodes get through. pdeathsig keeps the waiters from outliving the
       # shell, and wait -n ends both when either dies so the loop sets them up
       # again.
       exec {waiter_fd}< <(exec setpriv --pdeathsig TERM bash -c '
