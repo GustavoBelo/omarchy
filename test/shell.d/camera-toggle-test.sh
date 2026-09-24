@@ -89,45 +89,58 @@ state=$(camera_status)
 
 pass "camera status reports presence and the disable flag as JSON"
 
-# The stub fails like a watch on a flag directory that does not exist yet, and
-# logs what each attempt watched.
+# inotifywait fails like a watch that cannot be set up; udevadm stays up like
+# the real monitor. Both log what they were asked to watch.
 watch_bin="$test_tmp/watch-bin"
 mkdir -p "$watch_bin"
 cat >"$watch_bin/inotifywait" <<'SH'
 #!/bin/bash
-printf '%s\n' "$*" >>"$WATCH_LOG"
+printf 'inotifywait %s\n' "$*" >>"$WATCH_LOG"
 exit 1
 SH
-chmod +x "$watch_bin/inotifywait"
+cat >"$watch_bin/udevadm" <<'SH'
+#!/bin/bash
+printf 'udevadm %s\n' "$*" >>"$WATCH_LOG"
+echo $$ >>"$WATCH_PIDS"
+exec sleep 60
+SH
+chmod +x "$watch_bin/inotifywait" "$watch_bin/udevadm"
 
 : >"$test_tmp/watch.log"
+: >"$test_tmp/watch.pids"
 WATCH_LOG="$test_tmp/watch.log" \
+WATCH_PIDS="$test_tmp/watch.pids" \
 PATH="$watch_bin:$PATH" \
 OMARCHY_USB_DEVICES_PATH="$test_tmp/devices" \
-OMARCHY_CAMERA_DISABLED_FLAG="$test_tmp/missing/state/camera-disabled" \
-  timeout 2 "$status" --watch >/dev/null || true
+  timeout 2 "$status" --watch >/dev/null &
+watcher=$!
 
-attempts=$(wc -l <"$test_tmp/watch.log")
+# The other waiter has to go down with the one that failed while the watcher
+# is still running, or every retry would leave another monitor behind.
+sleep 1
+while read -r monitor_pid; do
+  if kill -0 "$monitor_pid" 2>/dev/null; then
+    kill "$monitor_pid"
+    fail "camera watch takes the udev monitor down with a failed inotify waiter"
+  fi
+done <"$test_tmp/watch.pids"
+wait "$watcher" || true
+
+attempts=$(grep -c '^inotifywait ' "$test_tmp/watch.log" || true)
 (( attempts == 1 )) ||
-  fail "camera watch backs off when its watch cannot be set up" "attempts in 2s: $attempts"
-
-watched=$(<"$test_tmp/watch.log")
-[[ $watched == *" /dev $test_tmp/missing/state" ]] ||
-  fail "camera watch watches the flag's own directory" "got: $watched"
+  fail "camera watch backs off when a waiter cannot start" "attempts in 2s: $attempts"
 
 # /dev/null alone is opened several times a second, and every wake rescans
 # every process's fds.
-[[ $watched == *"--include ^(/dev/video[0-9]+|"* ]] ||
-  fail "camera watch wakes only for camera nodes and the flag" "got: $watched"
+grep -Fx 'inotifywait -m -q -e open,close --include ^/dev/video[0-9]+$ /dev' "$test_tmp/watch.log" >/dev/null ||
+  fail "camera watch wakes only for camera nodes opening and closing" "got: $(<"$test_tmp/watch.log")"
 
-pass "camera watch ignores unrelated /dev activity and backs off on setup failure"
+# A camera that is already disabled never gets a /dev node, so plugging or
+# unplugging it only shows up on the USB bus.
+grep -Fx 'udevadm monitor --udev --subsystem-match=usb/usb_interface' "$test_tmp/watch.log" >/dev/null ||
+  fail "camera watch follows cameras on the USB bus" "got: $(<"$test_tmp/watch.log")"
 
-# inotifywait drops directory events under --include, so the watcher cannot
-# notice the flag's directory being created and relies on it existing.
-grep -Fx 'd /var/lib/omarchy 0755 root root -' "$ROOT/etc/tmpfiles.d/omarchy-camera.conf" >/dev/null ||
-  fail "tmpfiles creates the directory the camera watcher watches"
-
-pass "tmpfiles creates the directory the camera watcher watches"
+pass "camera watch ignores unrelated /dev activity and backs off when a waiter fails"
 
 # Root runs the privileged half directly, so the stubs below would not
 # stand between the script and this machine's real cameras.
