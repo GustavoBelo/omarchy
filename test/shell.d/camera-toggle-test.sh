@@ -89,6 +89,79 @@ state=$(camera_status)
 
 pass "camera status reports presence and the disable flag as JSON"
 
+# The one find that scans /proc is stubbed: every call reports the lasting
+# holders, and the brief ones only on the first call, like a browser opening
+# each camera for a moment to list it. The fd paths it prints sit under a fake
+# /proc, next to the comm file each real fd link has.
+fake_proc="$test_tmp/proc"
+holders_bin="$test_tmp/holders-bin"
+mkdir -p "$fake_proc"/{101,102,103} "$holders_bin"
+echo zoom >"$fake_proc/101/comm"
+echo chromium >"$fake_proc/102/comm"
+echo pipewire >"$fake_proc/103/comm"
+
+cat >"$holders_bin/find" <<'SH'
+#!/bin/bash
+calls=$(( $(<"$FIND_CALLS") + 1 ))
+echo "$calls" >"$FIND_CALLS"
+for pid in $LASTING_HOLDERS; do echo "$FAKE_PROC/$pid/fd/5"; done
+if (( calls == 1 )); then
+  for pid in $BRIEF_HOLDERS; do echo "$FAKE_PROC/$pid/fd/5"; done
+fi
+SH
+cat >"$holders_bin/pw-dump" <<'SH'
+#!/bin/bash
+cat "$PW_DUMP"
+SH
+chmod +x "$holders_bin/find" "$holders_bin/pw-dump"
+
+holders_status() {
+  echo 0 >"$test_tmp/find.calls"
+  FIND_CALLS="$test_tmp/find.calls" \
+  FAKE_PROC="$fake_proc" \
+  LASTING_HOLDERS="$1" \
+  BRIEF_HOLDERS="${2:-}" \
+  PW_DUMP="$test_tmp/pw-dump.json" \
+  PATH="$holders_bin:$PATH" \
+  OMARCHY_USB_DEVICES_PATH="$test_tmp/devices" \
+  OMARCHY_CAMERA_DISABLED_FLAG="$flag" \
+    "$status"
+}
+
+write_usb_interfaces 0e 0e
+
+state=$(holders_status 101 102)
+[[ $(jq -c '[.inUse, .apps]' <<<"$state") == '[true,["zoom"]]' ]] ||
+  fail "camera status names an app still holding a camera, not one that only listed it" "got: $state"
+
+state=$(holders_status "" 102)
+[[ $(jq -c '[.inUse, .apps]' <<<"$state") == '[false,[]]' ]] ||
+  fail "camera status ignores an app that opened a camera only to list it" "got: $state"
+
+pass "camera status counts an app only while it keeps a camera open"
+
+# When PipeWire holds the camera, the app comes from pw-dump: Firefox captures
+# through the camera portal, named on its client rather than on its stream.
+write_pw_dump() {
+  jq -n --arg camera "$1" '[
+    {id: 40, type: "PipeWire:Interface:Client", info: {props: {"application.name": "Firefox"}}},
+    {id: 60, type: "PipeWire:Interface:Node", info: {state: $camera, props: {"media.class": "Video/Source", "media.role": "Camera"}}},
+    {id: 61, type: "PipeWire:Interface:Node", info: {state: $camera, props: {"media.class": "Stream/Input/Video", "client.id": 40}}}
+  ]' >"$test_tmp/pw-dump.json"
+}
+
+write_pw_dump running
+state=$(holders_status 103)
+[[ $(jq -c '[.inUse, .apps]' <<<"$state") == '[true,["Firefox"]]' ]] ||
+  fail "camera status names the app behind a PipeWire camera stream" "got: $state"
+
+write_pw_dump suspended
+state=$(holders_status 103)
+[[ $(jq -c '[.inUse, .apps]' <<<"$state") == '[false,[]]' ]] ||
+  fail "camera status ignores PipeWire opening a camera to enumerate it" "got: $state"
+
+pass "camera status counts a PipeWire hold only while a camera source runs"
+
 # inotifywait fails like a watch that cannot be set up; udevadm stays up like
 # the real monitor. Both log what they were asked to watch. The failure waits
 # for the monitor to come up first, or wait -n could end the inner shell before
