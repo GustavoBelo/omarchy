@@ -8,14 +8,14 @@ toggle="$ROOT/bin/omarchy-toggle-camera"
 status="$ROOT/bin/omarchy-camera-status"
 sudoers_file="$ROOT/etc/sudoers.d/omarchy-toggle-camera"
 udev_rule="$ROOT/etc/udev/rules.d/70-omarchy-camera-disabled.rules"
-rule='ALL ALL=(root) NOPASSWD: /usr/bin/omarchy-toggle-camera on, /usr/bin/omarchy-toggle-camera off'
+rule='%wheel ALL=(root) NOPASSWD: /usr/bin/omarchy-toggle-camera on, /usr/bin/omarchy-toggle-camera off'
 
-# Exactly one rule, matched whole, because this grant reaches every user. A
-# second line, or the same command without its arguments (which sudoers reads
-# as "any arguments"), would widen it.
+# Exactly one rule, matched whole, because this grant skips the password. A
+# second line, a wider group than wheel, or the same command without its
+# arguments (which sudoers reads as "any arguments"), would widen it.
 rules=$(grep -vE '^[[:space:]]*(#|$)' "$sudoers_file")
 [[ $rules == "$rule" ]] ||
-  fail "camera sudoers file carries exactly the on/off rule and nothing else" "got: $rules"
+  fail "camera sudoers file carries exactly the wheel on/off rule and nothing else" "got: $rules"
 
 if command -v visudo >/dev/null; then
   visudo -cf "$sudoers_file" >/dev/null || fail "camera sudoers rule parses"
@@ -31,7 +31,7 @@ gated=$(grep -A1 -E '^if \(\( EUID == 0 \)\); then$' "$toggle" || true)
 [[ $gated == *"export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin"* ]] ||
   fail "omarchy-toggle-camera pins PATH to trusted system directories when it holds root"
 
-pass "camera sudoers rule is scoped to on and off"
+pass "camera sudoers rule is scoped to wheel, on, and off"
 
 # The udev rule and the toggle have to agree on the flag, or a disabled camera
 # comes back on the next replug or boot.

@@ -34,7 +34,7 @@ Nearly every widget does something on left, right, and middle click, and several
 
 Not everything in that table is on your bar out of the box. The media widget (MPRIS now-playing, with a scrolling track and artist), the microphone widget, and the camera widget are all built in but off by default — add them if you want them, as described below.
 
-The camera widget lights up while an app has a camera open and tells you which one. Turning the cameras off detaches them in the kernel rather than muting a stream, so no app can open them until you turn them back on, and they stay off across reboots and replugs. Any user on the machine can flip it without a password. It covers USB (UVC) webcams, which includes most built-in laptop cameras; MIPI cameras driven through libcamera are not covered yet.
+The camera widget lights up while an app has a camera open and tells you which one. Turning the cameras off detaches them in the kernel rather than muting a stream, so no app can open them until you turn them back on, and they stay off across reboots and replugs. It covers USB (UVC) webcams, which includes most built-in laptop cameras; MIPI cameras driven through libcamera are not covered yet.
 
 ## The panels
 
