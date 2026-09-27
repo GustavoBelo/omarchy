@@ -142,12 +142,17 @@ pass "camera status counts an app only while it keeps a camera open"
 
 # When PipeWire holds the camera, the app comes from pw-dump: Firefox captures
 # through the camera portal, named on its client rather than on its stream.
+# A second argument adds a screen share, which is a running video source too.
 write_pw_dump() {
-  jq -n --arg camera "$1" '[
+  jq -n --arg camera "$1" --arg share "${2:-}" '[
     {id: 40, type: "PipeWire:Interface:Client", info: {props: {"application.name": "Firefox"}}},
     {id: 60, type: "PipeWire:Interface:Node", info: {state: $camera, props: {"media.class": "Video/Source", "media.role": "Camera"}}},
     {id: 61, type: "PipeWire:Interface:Node", info: {state: $camera, props: {"media.class": "Stream/Input/Video", "client.id": 40}}}
-  ]' >"$test_tmp/pw-dump.json"
+  ] + if $share == "" then [] else [
+    {id: 41, type: "PipeWire:Interface:Client", info: {props: {"application.name": "Chromium"}}},
+    {id: 70, type: "PipeWire:Interface:Node", info: {state: "running", props: {"media.class": "Video/Source"}}},
+    {id: 71, type: "PipeWire:Interface:Node", info: {state: "running", props: {"media.class": "Stream/Input/Video", "client.id": 41}}}
+  ] end' >"$test_tmp/pw-dump.json"
 }
 
 write_pw_dump running
@@ -159,6 +164,11 @@ write_pw_dump suspended
 state=$(holders_status 103)
 [[ $(jq -c '[.inUse, .apps]' <<<"$state") == '[false,[]]' ]] ||
   fail "camera status ignores PipeWire opening a camera to enumerate it" "got: $state"
+
+write_pw_dump suspended share
+state=$(holders_status 103)
+[[ $(jq -c '[.inUse, .apps]' <<<"$state") == '[false,[]]' ]] ||
+  fail "camera status does not take a screen share for the camera" "got: $state"
 
 pass "camera status counts a PipeWire hold only while a camera source runs"
 

@@ -46,13 +46,14 @@ camera_users() {
 }
 
 # PipeWire opens every camera for a moment when it shows up, and also holds it
-# for apps that capture through the camera portal. Only a running video source
-# means an app is actually getting frames.
+# for apps that capture through the camera portal. Only a running camera source
+# means an app is actually getting frames, and a screen share runs a video
+# source of its own, so the source has to carry the Camera role.
 pipewire_camera_users() {
   pw-dump 2>/dev/null | jq -r '
     (map(select(.type == "PipeWire:Interface:Client") | {key: (.id | tostring), value: .info.props}) | from_entries) as $clients
     | [.[] | select(.type == "PipeWire:Interface:Node" and .info.state == "running") | .info.props] as $running
-    | if any($running[]; ."media.class" == "Video/Source") then
+    | if any($running[]; ."media.class" == "Video/Source" and ."media.role" == "Camera") then
         ([$running[] | select(."media.class" == "Stream/Input/Video")
           | $clients[(."client.id" // "" | tostring)] as $client
           | ."application.name" // $client."application.name" // ."node.name" // empty]
