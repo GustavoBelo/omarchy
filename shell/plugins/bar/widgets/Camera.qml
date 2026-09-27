@@ -28,6 +28,10 @@ BarWidget {
     } catch (e) {}
   }
 
+  function refresh() {
+    refreshProc.running = true
+  }
+
   Process {
     id: statusProc
     command: ["omarchy-camera-status", "--watch"]
@@ -44,12 +48,13 @@ BarWidget {
     onTriggered: statusProc.running = true
   }
 
-  // A toggle reaches the watcher only through driver bind and unbind events,
-  // and a camera with no driver bound sends none.
+  // A toggle reaches the watchers only through driver bind and unbind events,
+  // and a camera with no driver bound sends none. Every monitor has its own
+  // bar and watcher, so all of them refresh, not just the one clicked.
   Process {
     id: toggleProc
     command: ["omarchy-toggle-camera"]
-    onExited: refreshProc.running = true
+    onExited: root.broadcast("refresh")
   }
 
   Process {
